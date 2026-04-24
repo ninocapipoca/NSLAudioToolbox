@@ -66,7 +66,6 @@ def wav2aud(x, paras, COCHBA_filename):
         k = COCHBA[f'gain_{ch}']
 
         sos = sig.zpk2sos(z, po, k)
-        
         y1 = sig.sosfilt(sos, x).squeeze()
         ########################################
         # transduction: hair cells

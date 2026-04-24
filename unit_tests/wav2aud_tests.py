@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import soundfile as soundf
-from wav2aud_zpk2sos import wav2aud
+from src.wav2aud_zpk import wav2aud
 
 test_dir = Path(__file__).parent # unit_tests folder
 sf = 16000 # target sample rate
