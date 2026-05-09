@@ -17,10 +17,9 @@ def wav2aud(x: np.ndarray,
     
     """Compute the auditory spectrogram of an acoustic waveform.
 
-    Converts a raw waveform into an auditory spectrogram using a bank of IIR
-    cochlear filters, a hair cell nonlinearity, a lateral inhibitory network,
-    and temporal integration. Relevant for range of human hearing (20-20000Hz). 
-    Based on the NSL toolbox originally written in Matlab (see references).
+    Converts a raw waveform into an auditory spectrogram based on the modeling
+    by Shamma et al and their NSL toobox code originally written in Matlab (see references).
+    Relevant for the range of human hearing (20-20000Hz). 
 
     :param x: Input waveform as a 1-D array of audio samples.
     :type x: numpy.ndarray
@@ -31,13 +30,14 @@ def wav2aud(x: np.ndarray,
         16, 64). Set to 0 to use short-term frame averaging instead.
     :type time_cst: int, optional
     :param sig_fac: Nonlinear compression factor for the hair cell sigmoid.
-        Values beyond those listed simply return input to sigmoid unchanged.
-        - ``> 0`` - transistor-like nonlinearity
-        - ``0`` - hard limiter
-        - ``-1`` - half-wave rectifier
+        The smaller the value, the greater the compression.
+        - `> 0` - transistor-like nonlinearity
+        - `0` - full compression (step function)
+        - `-1` - half-wave rectifier
+        - other - linear function
     :type sig_fac: float, optional
     :param shift: Octave shift relative to 16 kHz. Use ``0`` for 16 kHz,
-        ``-1`` for 8 kHz, etc. 
+        ``-1`` for 8 kHz, etc. Sampling frequency = ``16000 * 2^[shft]``
     :type shift: int, optional
     :param verbose: If ``True``, logs per-channel progress at DEBUG level.
     :type verbose: bool, optional
@@ -56,14 +56,13 @@ def wav2aud(x: np.ndarray,
         channel. Lateral inhibition is computed by subtracting each channel's
         response from the one above it, followed by half-wave rectification.
 
-        Internal stage variables follow the theoretical framework of Yang,
+        Internal stage variables follow the theoretical work of Yang,
         Shamma, and Wang et al.:
 
         - ``y1`` — Spatiotemporal displacements along the basilar membrane
         - ``y2`` — Transduction of ``y1`` into hair cell potentials (or
           instantaneous auditory nerve firing rate)
-        - ``y3`` — Leaky spatial derivative along the cochlear axis (lateral
-          inhibition)
+        - ``y3`` — Models lateral inhibitory interactions among LIN neurons
         - ``y4`` — Half-wave rectified ``y3``, modelling threshold
           nonlinearity in the LIN network
         - ``y5`` — Final output of the LIN network
