@@ -8,10 +8,7 @@ from audio_toolbox.wav2aud_zpk import wav2aud
 
 test_dir = Path(__file__).parent # unit_tests folder
 
-sf = 16000 # target sample rate
-paras = [4, 0, -2, np.log2(sf/16000), 0, 0, 1]
-
-cochba = test_dir.parent / 'audio_toolbox/utils/cochba_filters.npz'
+sf = 16000 # sampling freq
 
 def construct_cases_audio():
     sound_dir = test_dir / 'test_sounds'
@@ -51,7 +48,7 @@ class audioTests(unittest.TestCase):
         soundData, sample_rate = soundf.read(sound)
 
         matlab_out = np.genfromtxt(csv, delimiter=',')
-        py_out = wav2aud(soundData, paras)
+        py_out = wav2aud(soundData)
 
         #match = np.isclose(matlab_out, py_out, rtol=1e-5)
         #percent_match = (np.sum(match) / matlab_out.size) * 100
@@ -66,7 +63,7 @@ class sinusoidTests(unittest.TestCase):
         csv = test_dir / 'matlab_outputs' / file
 
         matlab_out = np.genfromtxt(csv, delimiter=',')
-        py_out = wav2aud(wave, paras)
+        py_out = wav2aud(wave)
 
         #match = np.isclose(matlab_out, py_out, rtol=1e-5)
         #percent_match = (np.sum(match) / matlab_out.size) * 100
@@ -81,7 +78,7 @@ class stepTest(unittest.TestCase):
         csv = test_dir / 'matlab_outputs' / 'step.csv'
 
         matlab_out = np.genfromtxt(csv, delimiter=',')
-        py_out = wav2aud(step_input, paras)
+        py_out = wav2aud(step_input)
 
         #match = np.isclose(matlab_out, py_out, rtol=1e-5)
         #percent_match = (np.sum(match) / matlab_out.size) * 100

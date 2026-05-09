@@ -2,100 +2,96 @@ import numpy as np
 from scipy import signal as sig
 from audio_toolbox.utils import mathfuncs as mf
 from pathlib import Path
+import logging
 
-def wav2aud(x, paras, cochba_file=None):
-    """
-    Compute a fast auditory spectrogram for an acoustic waveform (band 180-7246 Hz).
+logger = logging.getLogger(__name__)
 
-    Implements a biologically-motivated auditory model using an IIR cochlear
-    filterbank. Three stages are applied across ``M-1`` frequency channels,
-    from highest to lowest:
+def wav2aud(x: np.ndarray, 
+            frm_len: int=4, 
+            time_cst: int=0, 
+            sig_fac: float=-2, 
+            shift: int=0, 
+            verbose: bool=False, 
+            cochba_file=None, 
+            **kwargs) -> np.ndarray: 
+    
+    """Compute the auditory spectrogram of an acoustic waveform.
 
-    1. **Analysis** — IIR cochlear filterbank (one filter per channel)
-    2. **Transduction** — hair cell nonlinearity via :func:`sigmoid`, followed
-       by a low-pass hair cell membrane filter (added v2.00)
-    3. **Reduction** — lateral inhibitory network (LIN), half-wave
-       rectification, and temporal integration
+    Converts a raw waveform into an auditory spectrogram using a bank of IIR
+    cochlear filters, a hair cell nonlinearity, a lateral inhibitory network,
+    and temporal integration. Covers the frequency range 180–7246 Hz (at 16 kHz
+    sampling rate). Based on the NSL MATLAB toolbox by Powen Ru and Taishih Chi.
 
-    The filterbank spans 128 channels at 24 channels/octave, with
-    characteristic frequencies defined by:
-
-    .. math::
-
-        CF = 440 \\times 2^{(k-31)/24}, \\quad k = 0, 1, \\ldots, 127
-
-    giving roughly CF(60) = 1 kHz (0.5 kHz) for a 16 kHz (8 kHz) sampling rate.
-
-    :param x: Input acoustic waveform (1-D).
+    :param x: Input waveform as a 1-D array of audio samples.
     :type x: numpy.ndarray
-    :param paras: Four-element parameter vector ``[frmlen, tc, fac, shft]``:
-
-        - ``frmlen`` — frame length in ms; typical values are 8, 16, or
-          powers of 2.
-        - ``tc`` — leaky integration time constant in ms; typical values are
-          4, 16, or 64 ms. Set to ``0`` to use short-term averaging instead
-          of leaky integration.
-        - ``fac`` — nonlinear factor (critical level ratio); controls the
-          degree of compression applied by :func:`sigmoid`. Typical value is
-          ``0.1`` for a unit-variance signal. Smaller values give more
-          compression. Special values:
-
-          - ``fac > 0`` — smooth transistor-like compression
-          - ``fac = 0`` — full compression / Boolean (hard limiter)
-          - ``fac = -1`` — half-wave rectifier
-          - ``fac = -2`` — linear passthrough (bypasses hair cell membrane
-            low-pass filter)
-
-        - ``shft`` — octave shift relative to 16 kHz; e.g. ``0`` for 16 kHz,
-          ``-1`` for 8 kHz. Sampling rate is ``SF = 16000 * 2^shft`` Hz.
-
-    :type paras: array-like of length 4
-    :param COCHBA_filename: Path to the ``.npz`` file containing the
-        pre-computed IIR cochlear filterbank coefficients. Expected keys are
-        ``len`` (number of channels ``M``) and, for each channel index
-        ``ch``: ``zeros_<ch>``, ``poles_<ch>``, ``gain_<ch>``.
-    :type COCHBA_filename: str or path-like
+    :param frm_len: Frame length in milliseconds. Common values: 8, 16, or
+        powers of two. Determines the temporal resolution of the output.
+    :type frm_len: int, optional
+    :param time_cst: Leaky integration time constant in milliseconds (e.g. 4,
+        16, 64). Set to 0 to use short-term frame averaging instead.
+    :type time_cst: int, optional
+    :param sig_fac: Nonlinear compression factor for the hair cell sigmoid.
+        Smaller values give stronger compression. Special values: ``0`` for
+        full compression (boolean output), ``-1`` for half-wave rectification,
+        ``-2`` for linear (no hair cell membrane filtering applied).
+    :type sig_fac: float, optional
+    :param shift: Octave shift relative to 16 kHz. Use ``0`` for 16 kHz,
+        ``-1`` for 8 kHz, etc. Scales all time constants and frame lengths
+        accordingly.
+    :type shift: int, optional
+    :param verbose: If ``True``, logs per-channel progress at DEBUG level.
+    :type verbose: bool, optional
+    :param cochba_file: Path to a ``.npz`` file containing the
+        cochlear filter bank (poles, zeros, and gains per channel). Defaults to
+        the bundled ``cochba_filters.npz``, the filters designed by Shamma et al
+        based on their experimental work.
+    :type cochba_file: path-like or None, optional
     :returns: Auditory spectrogram of shape ``(N, M-1)``, where ``N`` is the
-        number of frames and ``M-1`` is the number of frequency channels,
-        spanning 180-7246 Hz.
+        number of time frames and ``M-1`` is the number of frequency channels
+        (ordered high-to-low frequency).
     :rtype: numpy.ndarray
 
     .. note::
-        Two ``print`` statements are present in this function for debugging
-        purposes. These should be replaced with :mod:`logging` calls before
-        production use.
+        The filter bank is applied from the highest to the lowest frequency
+        channel. Lateral inhibition is computed by subtracting each channel's
+        response from the one above it, followed by half-wave rectification.
 
-    .. rubric:: IIR Filterbank Timing Reference
+        Internal stage variables follow the theoretical framework of Yang,
+        Shamma, and Wang et al.:
 
-    For a standard 16 kHz signal (``shft = 0``):
+        - ``y1`` — Spatiotemporal displacements along the basilar membrane
+        - ``y2`` — Transduction of ``y1`` into hair cell potentials (or
+          instantaneous auditory nerve firing rate)
+        - ``y3`` — Leaky spatial derivative along the cochlear axis (lateral
+          inhibition)
+        - ``y4`` — Half-wave rectified ``y3``, modelling threshold
+          nonlinearity in the LIN network
+        - ``y5`` — Final output of the LIN network
 
-    +------------------+------------------+-----------+-----------+
-    | Frequency range  | Downsample factor| tc (ms)   | Frame (ms)|
-    +==================+==================+===========+===========+
-    | 180 - 7246 Hz    | 1 / oct shift 0  | 64        | 16        |
-    +------------------+------------------+-----------+-----------+
-    | 90  - 3623 Hz    | 2 / oct shift -1 | 512       | 128       |
-    +------------------+------------------+-----------+-----------+
+        LIN = lateral inhibitory network.
+
+    Example::
+
+        import numpy as np
+        t = np.arange(0, duration + 1/16000, 1/16000)  
+        wave = np.sin(2 * np.pi * freq * t[:32000]) # pure sinusoid
+        v5 = wav2aud(x, verbose=True)
 
     .. rubric:: References
 
     | Original Author: Powen Ru (powen@isr.umd.edu), NSL, UMD
-    | v1.00: 01-Jun-97
-    | v1.10: 04-Sep-98 — Taishih Chi: added Kuansan's FIR filter option
-    | v2.00: 24-Jul-01 — Taishih Chi: added hair cell membrane low-pass filter
-    | v2.10: 04-Apr-04 — Taishih Chi: removed FIR option (see ``wav2aud_fir``)
 
-    .. seealso::
-        :func:`sigmoid`, :func:`aud2cor`
+    .. [1] Yang, X., Wang, K., and Shamma, S. A. (1992). "Auditory
+       representations of acoustic signals." *IEEE Transactions on
+       Information Theory*, 38(2), 824-839.
+       https://doi.org/10.1109/18.119739
 
-    Example usage::
-
-        import numpy as np
-        x = np.random.randn(16000)    # 1 s of white noise at 16 kHz
-        paras = [8, 8, 0.1, 0]       # 8 ms frames, 8 ms tc, mild compression
-        v5 = wav2aud(x, paras, 'cochba.npz')
-        print(v5.shape)               # (N, M-1)
+    .. [2] Wang, K., and Shamma, S. A. (1994). "Self-normalization and
+       noise-robustness in early auditory representations." *IEEE
+       Transactions on Speech and Audio Processing*, 2(3), 421-435.
+       https://doi.org/10.1109/89.294356
     """
+    
     if not cochba_file:
         # if none specified, set to provided filters
         cochba_file = Path(__file__).parent / 'utils' / 'cochba_filters.npz'
@@ -105,17 +101,14 @@ def wav2aud(x, paras, cochba_file=None):
 
     L_x = len(x)
 
-    shft = paras[3]                                    # octave shift
-    fac  = paras[2]                                    # nonlinear factor
-    L_frm = int(np.round(paras[0] * 2**(4+shft)))     # frame length (samples)
+    L_frm = int(np.round(frm_len * 2**(4+shift)))     # frame length (samples)
 
     alph = 0
-    if paras[1]:
-        alph = np.exp(-1 / (paras[1] * 2**(4+shft)))  # decay factor for leaky integration
+    if time_cst:
+        alph = np.exp(-1 / (time_cst * 2**(4+shift)))  # decay factor for leaky integration
 
     haircell_tc = 0.5                                  # hair cell time constant (ms)
-    beta = np.exp(-1 / (haircell_tc * 2**(4+shft)))   # hair cell membrane decay
-    print(haircell_tc, beta)
+    beta = np.exp(-1 / (haircell_tc * 2**(4+shift)))   # hair cell membrane decay
 
     # Allocate output: N frames x (M-1) channels
     N = int(np.ceil(L_x / L_frm))
@@ -129,13 +122,16 @@ def wav2aud(x, paras, cochba_file=None):
     po = COCHBA[f'poles_{M-1}']
     k  = COCHBA[f'gain_{M-1}']
 
+    if verbose:
+        logger.debug(f"processing channel {M-1}")
+
     sos = sig.zpk2sos(z, po, k)
     y1  = sig.sosfilt(sos, x).squeeze()
-    y2  = mf.sigmoid(y1, fac)
+    y2  = mf.sigmoid(y1, sig_fac)
 
     # Hair cell membrane low-pass filter (cutoff <= 4 kHz).
-    # Skipped when fac == -2 (linear ionic channel mode).
-    if fac != -2:
+    # Skipped when sig_fac == -2 (linear ionic channel mode).
+    if sig_fac != -2:
         sos_y2 = sig.tf2sos(np.array([1.]), np.array([1, -beta]))
         y2 = sig.sosfilt(sos_y2, y2).squeeze()
 
@@ -143,9 +139,9 @@ def wav2aud(x, paras, cochba_file=None):
 
     # --- Remaining channels (high -> low frequency) ---
     for ch in range(M-2, 0, -1):
-        print(f"processing channel {ch}")
+        if verbose:
+            logger.debug(f"processing channel {ch}")
 
-        # Stage 1 — Analysis: cochlear filterbank (IIR)
         z  = COCHBA[f'zeros_{ch}']
         po = COCHBA[f'poles_{ch}']
         k  = COCHBA[f'gain_{ch}']
@@ -153,16 +149,16 @@ def wav2aud(x, paras, cochba_file=None):
         sos = sig.zpk2sos(z, po, k)
         y1  = sig.sosfilt(sos, x).squeeze()
 
-        # Stage 2 — Transduction: hair cell nonlinearity
-        y2 = mf.sigmoid(y1, fac)
+        # Transduction: hair cell nonlinearity
+        y2 = mf.sigmoid(y1, sig_fac)
 
         # Hair cell membrane low-pass filter (cutoff <= 4 kHz).
-        # Skipped when fac == -2 (linear ionic channel mode).
-        if fac != -2:
+        # Skipped when sig_fac == -2 (linear ionic channel mode).
+        if sig_fac != -2:
             sos_y2 = sig.tf2sos(np.array([1.]), np.array([1, -beta]))
             y2 = sig.sosfilt(sos_y2, y2).squeeze()
 
-        # Stage 3 — Reduction: lateral inhibitory network
+        # lateral inhibitory network
         y3   = y2 - y2_h   # subtract higher-frequency channel response
         y2_h = y2           # update reference for next iteration
         y4   = np.maximum(y3, 0)  # half-wave rectify
@@ -181,6 +177,3 @@ def wav2aud(x, paras, cochba_file=None):
                 v5[:, ch] = np.mean(np.reshape(y4, (N, L_frm)).T, axis=0)
 
     return v5
-
-if __name__ == "__main__":
-    pass
