@@ -19,25 +19,25 @@ def wav2aud(x: np.ndarray,
 
     Converts a raw waveform into an auditory spectrogram using a bank of IIR
     cochlear filters, a hair cell nonlinearity, a lateral inhibitory network,
-    and temporal integration. Covers the frequency range 180–7246 Hz (at 16 kHz
-    sampling rate). Based on the NSL MATLAB toolbox by Powen Ru and Taishih Chi.
+    and temporal integration. Relevant for range of human hearing (20-20000Hz). 
+    Based on the NSL toolbox originally written in Matlab (see references).
 
     :param x: Input waveform as a 1-D array of audio samples.
     :type x: numpy.ndarray
-    :param frm_len: Frame length in milliseconds. Common values: 8, 16, or
+    :param frm_len: Frame length. Common values: 8, 16, or
         powers of two. Determines the temporal resolution of the output.
     :type frm_len: int, optional
-    :param time_cst: Leaky integration time constant in milliseconds (e.g. 4,
+    :param time_cst: Leaky integration time constant (e.g. 4,
         16, 64). Set to 0 to use short-term frame averaging instead.
     :type time_cst: int, optional
     :param sig_fac: Nonlinear compression factor for the hair cell sigmoid.
-        Smaller values give stronger compression. Special values: ``0`` for
-        full compression (boolean output), ``-1`` for half-wave rectification,
-        ``-2`` for linear (no hair cell membrane filtering applied).
+        Values beyond those listed simply return input to sigmoid unchanged.
+        - ``> 0`` - transistor-like nonlinearity
+        - ``0`` - hard limiter
+        - ``-1`` - half-wave rectifier
     :type sig_fac: float, optional
     :param shift: Octave shift relative to 16 kHz. Use ``0`` for 16 kHz,
-        ``-1`` for 8 kHz, etc. Scales all time constants and frame lengths
-        accordingly.
+        ``-1`` for 8 kHz, etc. 
     :type shift: int, optional
     :param verbose: If ``True``, logs per-channel progress at DEBUG level.
     :type verbose: bool, optional
