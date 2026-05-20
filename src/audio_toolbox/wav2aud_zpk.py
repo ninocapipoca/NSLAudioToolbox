@@ -158,16 +158,16 @@ def wav2aud(x: np.ndarray,
             y2 = sig.sosfilt(sos_y2, y2).squeeze()
 
         # lateral inhibitory network
-        y3   = y2 - y2_h   # subtract higher-frequency channel response
-        y2_h = y2           # update reference for next iteration
-        y4   = np.maximum(y3, 0)  # half-wave rectify
+        y3   = y2 - y2_h 
+        y2_h = y2
+        y4   = np.maximum(y3, 0)
 
         # Temporal integration
         if alph:
             # Leaky integration
             sos_y5 = sig.tf2sos(np.array([1.]), np.array([1, -alph]))
             y5 = sig.sosfilt(sos_y5, y4).squeeze()
-            v5[:, ch] = sig.decimate(y5, L_frm)   # downsample with anti-aliasing
+            v5[:, ch] = sig.decimate(y5, L_frm)
         else:
             # Short-term average over each frame
             if L_frm == 1:
